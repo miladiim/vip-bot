@@ -39,12 +39,38 @@ def handle_contact(message):
     users[str(user_id)] = {
         'phone': phone,
         'timestamp': int(time.time()),
-        'active': True
+        'active': False,  # فعلاً پرداخت نشده
+        'paid': False
     }
     save_users()
 
     bot.send_message(ADMIN_ID, f"📥 کاربر جدید ثبت شد\nآیدی: {user_id}\nشماره: {phone}")
     bot.send_message(message.chat.id, f"✅ شماره شما ثبت شد.\nبرای پرداخت، روی لینک زیر کلیک کنید:\n{ZARINPAL_URL}")
+
+@bot.message_handler(commands=['confirm'])
+def confirm_payment(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.send_message(message.chat.id, "⚠️ شما اجازه این کار رو ندارید.")
+        return
+
+    try:
+        user_id = message.text.split()[1]
+    except IndexError:
+        bot.send_message(message.chat.id, "❌ لطفاً شناسه کاربر را بعد از دستور وارد کنید.\nمثال: /confirm 123456789")
+        return
+
+    if user_id in users:
+        users[user_id]['paid'] = True
+        users[user_id]['timestamp'] = int(time.time())
+        users[user_id]['active'] = True
+        save_users()
+        bot.send_message(message.chat.id, f"✅ پرداخت کاربر {user_id} تایید شد.")
+        try:
+            bot.send_message(int(user_id), f"🎉 پرداخت شما تایید شد!\nبرای عضویت در کانال VIP این لینک را دنبال کنید:\n{CHANNEL_LINK}")
+        except:
+            pass
+    else:
+        bot.send_message(message.chat.id, "❌ کاربری با این شناسه یافت نشد.")
 
 @bot.message_handler(func=lambda m: m.text == '🎫 تیکت به پشتیبانی')
 def ask_support(message):
@@ -79,7 +105,7 @@ def check_expiry():
                     pass
                 users[user_id]['active'] = False
                 save_users()
-        time.sleep(3600)  # Check every hour
+        time.sleep(3600)  # هر ساعت یکبار چک می‌کند
 
 if __name__ == '__main__':
     load_users()
