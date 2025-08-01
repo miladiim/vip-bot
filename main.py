@@ -2,7 +2,7 @@ import logging
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
 from pymongo import MongoClient
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 
 # ---------- اطلاعات ربات ----------
@@ -22,10 +22,26 @@ tickets_col = db["tickets"]
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 
 # ---------- توابع ----------
+
 def start(update: Update, context: CallbackContext):
-    keyboard = [[KeyboardButton("ارسال شماره موبایل", request_contact=True)]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-    update.message.reply_text("برای ادامه لطفاً شماره موبایل خود را ارسال کنید:", reply_markup=reply_markup)
+    user_id = update.message.from_user.id
+    user = users_col.find_one({"user_id": user_id})
+    if user and user.get("phone"):
+        update.message.reply_text("شماره شما قبلاً ثبت شده است. اگر نیاز دارید، از دکمه‌های موجود استفاده کنید.")
+    else:
+        keyboard = [[KeyboardButton("ارسال شماره موبایل", request_contact=True)]]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+        update.message.reply_text("برای ادامه لطفاً شماره موبایل خود را ارسال کنید:", reply_markup=reply_markup)
+
+def remove_channel_button(context: CallbackContext):
+    job = context.job
+    chat_id = job.context["chat_id"]
+    message_id = job.context["message_id"]
+    try:
+        context.bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
+        logging.info(f"دکمه کانال از پیام {message_id} حذف شد")
+    except Exception as e:
+        logging.error(f"خطا در حذف دکمه: {e}")
 
 def handle_contact(update: Update, context: CallbackContext):
     contact = update.message.contact
@@ -40,9 +56,15 @@ def handle_contact(update: Update, context: CallbackContext):
             "joined": False,
             "expire_at": None
         })
+    else:
+        users_col.update_one({"user_id": user_id}, {"$set": {"phone": phone_number}})
 
+    # ارسال پیام با دکمه لینک پرداخت
     keyboard = [[InlineKeyboardButton("پرداخت و دریافت لینک عضویت", url=ZARINPAL_LINK)]]
-    update.message.reply_text("✅ شماره شما ثبت شد. برای عضویت VIP، ابتدا پرداخت انجام دهید:", reply_markup=InlineKeyboardMarkup(keyboard))
+    sent_msg = update.message.reply_text("✅ شماره شما ثبت شد. برای عضویت VIP، ابتدا پرداخت انجام دهید:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    # حذف دکمه لینک پرداخت پس از 10 دقیقه
+    context.job_queue.run_once(remove_channel_button, 600, context={"chat_id": sent_msg.chat_id, "message_id": sent_msg.message_id})
 
     # ارسال دکمه پشتیبانی
     support_button = [[InlineKeyboardButton("📩 تیکت به پشتیبانی", callback_data="support")]]
@@ -69,12 +91,27 @@ def handle_text(update: Update, context: CallbackContext):
             "time": timestamp
         }
         tickets_col.insert_one(ticket)
-        context.bot.send_message(chat_id=ADMIN_ID, text=f"📨 تیکت جدید از {user_id}:
-{text}")
+
+        full_name = update.message.from_user.full_name
+        user = users_col.find_one({"user_id": user_id})
+        phone = user.get("phone") if user else "نامشخص"
+
+        # ارسال پیام تیکت به ادمین
+        msg = (
+            f"📨 تیکت جدید از کاربر:\n"
+            f"👤 نام: {full_name}\n"
+            f"📞 شماره: {phone}\n"
+            f"🆔 آیدی: {user_id}\n\n"
+            f"📨 پیام:\n{text}"
+        )
+        context.bot.send_message(chat_id=ADMIN_ID, text=msg)
+
         update.message.reply_text("✅ تیکت شما با موفقیت ارسال شد.")
         context.user_data['awaiting_ticket'] = False
+    else:
+        update.message.reply_text("برای شروع، دستور /start را ارسال کنید.")
 
-# ---------- راه‌اندازی بات ----------
+# ---------- راه‌اندازی ربات ----------
 app = Application.builder().token(BOT_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
