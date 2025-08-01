@@ -46,6 +46,24 @@ def handle_contact(message):
     bot.send_message(ADMIN_ID, f"📥 کاربر جدید ثبت شد\nآیدی: {user_id}\nشماره: {phone}")
     bot.send_message(message.chat.id, f"✅ شماره شما ثبت شد.\nبرای پرداخت، روی لینک زیر کلیک کنید:\n{ZARINPAL_URL}")
 
+@bot.message_handler(commands=['timeleft'])
+def time_left(message):
+    user_id = str(message.from_user.id)
+    if user_id in users and users[user_id].get('active'):
+        now = int(time.time())
+        start = users[user_id]['timestamp']
+        elapsed = now - start
+        remaining = 30*86400 - elapsed
+        if remaining > 0:
+            days = remaining // 86400
+            hours = (remaining % 86400) // 3600
+            minutes = (remaining % 3600) // 60
+            bot.send_message(message.chat.id, f"⏳ مدت باقی‌مانده اشتراک شما: {days} روز و {hours} ساعت و {minutes} دقیقه")
+        else:
+            bot.send_message(message.chat.id, "⏳ اشتراک شما منقضی شده است.")
+    else:
+        bot.send_message(message.chat.id, "❗️شما در لیست کاربران فعال نیستید.")
+
 @bot.message_handler(func=lambda m: m.text == '🎫 تیکت به پشتیبانی')
 def ask_support(message):
     bot.send_message(message.chat.id, "📝 لطفاً پیام خود را بنویسید و ارسال کنید.")
@@ -54,6 +72,29 @@ def ask_support(message):
 def forward_to_admin(message):
     bot.send_message(ADMIN_ID, f"📩 پیام از {message.from_user.id}:\n{message.text}")
     bot.send_message(message.chat.id, "✅ پیام شما ارسال شد. منتظر پاسخ باشید.")
+
+@bot.message_handler(commands=['remove'])
+def remove_user(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        args = message.text.split()
+        if len(args) != 2:
+            bot.send_message(ADMIN_ID, "❗️فرمت دستور صحیح نیست. مثال:\n/remove 123456789")
+            return
+        user_id = args[1]
+
+        bot.kick_chat_member(CHANNEL_ID, int(user_id))
+        if user_id in users:
+            users[user_id]['active'] = False
+            save_users()
+
+        bot.send_message(ADMIN_ID, f"⛔️ کاربر {user_id} با موفقیت از کانال حذف شد.")
+        bot.send_message(int(user_id), "⚠️ شما توسط مدیریت از کانال VIP حذف شدید.")
+
+    except Exception as e:
+        bot.send_message(ADMIN_ID, f"❗️خطا در حذف کاربر:\n{str(e)}")
 
 def save_users():
     with open("users.json", "w") as f:
@@ -80,31 +121,6 @@ def check_expiry():
                 users[user_id]['active'] = False
                 save_users()
         time.sleep(3600)  # Check every hour
-
-@bot.message_handler(commands=['activate'])
-def activate_user(message):
-    if message.from_user.id != ADMIN_ID:
-        bot.send_message(message.chat.id, "⛔️ فقط ادمین می‌تونه این دستور رو اجرا کنه.")
-        return
-
-    try:
-        parts = message.text.split()
-        if len(parts) != 2:
-            bot.send_message(message.chat.id, "❗️استفاده درست: /activate USER_ID")
-            return
-
-        user_id = parts[1]
-        if user_id in users:
-            users[user_id]['active'] = True
-            users[user_id]['timestamp'] = int(time.time())
-            save_users()
-
-            bot.send_message(int(user_id), f"🎉 پرداخت شما تأیید شد!\nعضویت VIP شما فعال شد.\nبرای عضویت در کانال، روی لینک زیر کلیک کنید:\n{CHANNEL_LINK}")
-            bot.send_message(message.chat.id, "✅ کاربر فعال شد.")
-        else:
-            bot.send_message(message.chat.id, "❌ کاربر یافت نشد.")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"خطا: {str(e)}")
 
 if __name__ == '__main__':
     load_users()
