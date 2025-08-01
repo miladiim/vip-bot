@@ -1,4 +1,4 @@
-pytelegrambotapi
-Flask    
+python-telegram-bot>=20.0
 pymongo
 pytz
+Flask
