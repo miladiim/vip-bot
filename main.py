@@ -213,7 +213,19 @@ def check_expiry():
                 except:
                     pass
         time.sleep(3600)
-
+@bot.message_handler(commands=['reply'])
+def reply_to_user(message):
+    try:
+        parts = message.text.split(maxsplit=2)
+        if len(parts) < 3:
+            bot.send_message(message.chat.id, "❗️فرمت صحیح:\n/reply [user_id] [message]")
+            return
+        uid = int(parts[1])
+        text = parts[2]
+        bot.send_message(uid, f"📩 پاسخ پشتیبانی:\n\n{text}")
+        bot.send_message(message.chat.id, "✅ پیام با موفقیت ارسال شد.")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ خطا در ارسال پیام: {e}")
 if __name__ == '__main__':
     load_users()
     threading.Thread(target=check_expiry, daemon=True).start()
