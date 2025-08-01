@@ -167,7 +167,43 @@ def check_status(message):
     
     bot.reply_to(message,
                  f"وضعیت اشتراک کاربر:\nآیدی: {user_id_to_check}\nشماره: {data.get('phone')}\nوضعیت: {status_text}\nروزهای باقی‌مانده: {days_left} روز")
+@bot.message_handler(commands=['activate'])
+def activate_user(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "❌ شما اجازه این دستور را ندارید.")
+        return
 
+    args = message.text.split()
+    if len(args) != 2:
+        bot.reply_to(message, "❗️ لطفاً دستور را به صورت زیر وارد کنید:\n/activate USER_ID یا /activate PHONE_NUMBER")
+        return
+
+    identifier = args[1]
+    user_id_to_activate = None
+
+    if identifier.isdigit():
+        if identifier in users:
+            user_id_to_activate = identifier
+        else:
+            for uid, data in users.items():
+                if data.get('phone') == identifier:
+                    user_id_to_activate = uid
+                    break
+
+    if not user_id_to_activate:
+        bot.reply_to(message, "❗️ کاربر یافت نشد.")
+        return
+
+    try:
+        bot.unban_chat_member(CHANNEL_ID, int(user_id_to_activate))  # برای اطمینان از اینکه عضو بشه
+        users[user_id_to_activate]['active'] = True
+        users[user_id_to_activate]['timestamp'] = int(time.time())
+        save_users()
+        bot.send_message(int(user_id_to_activate),
+                         f"✅ اشتراک شما فعال شد! برای عضویت وارد کانال زیر شوید:\n{CHANNEL_LINK}")
+        bot.reply_to(message, f"✅ کاربر {user_id_to_activate} با موفقیت فعال شد.")
+    except Exception as e:
+        bot.reply_to(message, f"❌ خطا در فعال‌سازی کاربر: {e}")
 
 if __name__ == '__main__':
     load_users()
