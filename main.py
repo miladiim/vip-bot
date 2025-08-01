@@ -3,6 +3,7 @@ import json
 import telebot
 import time
 import threading
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 API_TOKEN = '494613530:AAHQFmKNzgoehLf9i35mIPn1Z8WhtkrBZa4'
 CHANNEL_ID = -1002891641618
@@ -12,6 +13,7 @@ ZARINPAL_URL = 'https://zarinp.al/634382'
 
 bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
+
 users = {}
 
 @app.route('/', methods=['GET'])
@@ -55,11 +57,6 @@ def send_welcome(message):
 
 @bot.message_handler(content_types=['contact'])
 def handle_contact(message):
-    # بررسی صحت اینکه شماره برای خود کاربره
-    if message.contact.user_id != message.from_user.id:
-        bot.send_message(message.chat.id, "❌ لطفاً فقط شماره خودتان را از طریق دکمه ارسال کنید.")
-        return
-
     user_id = message.from_user.id
     phone = message.contact.phone_number
     users[str(user_id)] = {
@@ -68,29 +65,36 @@ def handle_contact(message):
         'active': False
     }
     save_users()
-
     bot.send_message(ADMIN_ID, f"📥 کاربر جدید ثبت شد\nآیدی: {user_id}\nشماره: {phone}")
-    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add('🎫 تیکت به پشتیبانی')
-    bot.send_message(message.chat.id, f"✅ شماره شما ثبت شد.\nبرای پرداخت، روی لینک زیر کلیک کنید:\n{ZARINPAL_URL}",
-                     reply_markup=markup)
+    bot.send_message(message.chat.id, f"✅ شماره شما ثبت شد.\nبرای پرداخت، روی لینک زیر کلیک کنید:\n{ZARINPAL_URL}")
 
 @bot.message_handler(func=lambda m: m.text == '🎫 تیکت به پشتیبانی')
 def ask_support(message):
     bot.send_message(message.chat.id, "📝 لطفاً پیام خود را بنویسید و ارسال کنید.")
-    bot.clear_step_handler_by_chat_id(message.chat.id)
     bot.register_next_step_handler(message, forward_to_admin)
 
 def forward_to_admin(message):
-    bot.send_message(ADMIN_ID, f"📩 پیام از {message.from_user.id}:\n{message.text}")
+    user_id = message.from_user.id
+    user_msg = message.text
+
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("📤 پاسخ به این پیام", callback_data=f"reply_to:{user_id}"))
+
+    bot.send_message(ADMIN_ID, f"📩 پیام از {user_id}:\n{user_msg}", reply_markup=markup)
     bot.send_message(message.chat.id, "✅ پیام شما ارسال شد. منتظر پاسخ باشید.")
 
-@bot.message_handler(commands=['users_backup'])
-def backup_users(message):
-    if message.from_user.id == ADMIN_ID:
-        save_users()
-        with open("users.json", "rb") as f:
-            bot.send_document(message.chat.id, f)
+@bot.callback_query_handler(func=lambda call: call.data.startswith('reply_to:'))
+def handle_reply_button(call):
+    user_id = call.data.split(':')[1]
+    msg = bot.send_message(call.message.chat.id, f"✏️ پاسخ خود را برای کاربر {user_id} بنویس:")
+    bot.register_next_step_handler(msg, send_reply_message, user_id)
+
+def send_reply_message(message, user_id):
+    try:
+        bot.send_message(int(user_id), f"📩 پاسخ پشتیبانی:\n\n{message.text}")
+        bot.send_message(message.chat.id, "✅ پیام شما برای کاربر ارسال شد.")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ خطا در ارسال پیام: {e}")
 
 @bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID)
 def admin_commands(message):
@@ -108,27 +112,24 @@ def admin_commands(message):
 
     elif text == '🗑️ حذف اشتراک':
         bot.send_message(message.chat.id, "لطفا آیدی عددی کاربر را برای حذف اشتراک ارسال کنید:")
-        bot.clear_step_handler_by_chat_id(message.chat.id)
         bot.register_next_step_handler(message, delete_subscription)
 
     elif text == '✅ فعال‌سازی اعتبار':
         bot.send_message(message.chat.id, "لطفا آیدی عددی کاربر را برای فعال‌سازی ارسال کنید:")
-        bot.clear_step_handler_by_chat_id(message.chat.id)
         bot.register_next_step_handler(message, activate_subscription)
 
     elif text == '🔍 بررسی اعتبار':
         bot.send_message(message.chat.id, "لطفا آیدی عددی کاربر را برای بررسی اعتبار ارسال کنید:")
-        bot.clear_step_handler_by_chat_id(message.chat.id)
         bot.register_next_step_handler(message, check_subscription)
 
     elif text == '📢 ارسال پیام همگانی':
         bot.send_message(message.chat.id, "متن پیام همگانی را ارسال کنید:")
-        bot.clear_step_handler_by_chat_id(message.chat.id)
         bot.register_next_step_handler(message, broadcast_message)
 
     elif text == '❌ خروج':
         bot.send_message(message.chat.id, "خروج از پنل مدیریت انجام شد.")
         bot.send_message(message.chat.id, "برای شروع مجدد /start را بزنید.")
+        
     else:
         bot.send_message(message.chat.id, "دستور نامعتبر است. لطفا یکی از گزینه‌ها را انتخاب کنید.")
         admin_menu(message)
@@ -150,16 +151,12 @@ def delete_subscription(message):
 def activate_subscription(message):
     uid = message.text.strip()
     if uid in users:
-        now = int(time.time())
-        if users[uid].get('active') and now < users[uid]['timestamp'] + 30 * 86400:
-            users[uid]['timestamp'] += 30 * 86400  # تمدید
-        else:
-            users[uid]['timestamp'] = now
         users[uid]['active'] = True
+        users[uid]['timestamp'] = int(time.time())
         save_users()
         try:
             bot.unban_chat_member(CHANNEL_ID, int(uid))
-            bot.send_message(int(uid), f"✅ اشتراک شما فعال شد.\nبرای ورود به کانال VIP روی دکمه زیر بزنید.",
+            bot.send_message(int(uid), f"اشتراک شما فعال شد.\nبرای ورود به کانال VIP روی دکمه زیر بزنید.", 
                              reply_markup=telebot.types.InlineKeyboardMarkup().add(
                                  telebot.types.InlineKeyboardButton("ورود به کانال VIP", url=CHANNEL_LINK)
                              ))
@@ -213,19 +210,7 @@ def check_expiry():
                 except:
                     pass
         time.sleep(3600)
-@bot.message_handler(commands=['reply'])
-def reply_to_user(message):
-    try:
-        parts = message.text.split(maxsplit=2)
-        if len(parts) < 3:
-            bot.send_message(message.chat.id, "❗️فرمت صحیح:\n/reply [user_id] [message]")
-            return
-        uid = int(parts[1])
-        text = parts[2]
-        bot.send_message(uid, f"📩 پاسخ پشتیبانی:\n\n{text}")
-        bot.send_message(message.chat.id, "✅ پیام با موفقیت ارسال شد.")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ خطا در ارسال پیام: {e}")
+
 if __name__ == '__main__':
     load_users()
     threading.Thread(target=check_expiry, daemon=True).start()
