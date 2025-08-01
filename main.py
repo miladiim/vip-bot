@@ -4,23 +4,17 @@ import logging
 from pymongo import MongoClient
 import datetime
 
-# توکن ربات
 TOKEN = "494613530:AAHQFmKNzgoehLf9i35mIPn1Z8WhtkrBZa4"
-
-# اتصال به MongoDB Atlas
 MONGO_URI = "mongodb+srv://vipadmin:milad137555@cluster0.g6mqucj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client["vip_bot"]
 users_collection = db["users"]
 
-# تنظیمات لاگ
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# شناسه عددی کانال VIP
 VIP_CHANNEL_ID = -1002891641618
-
-# فقط آیدی عددی ادمین اصلی
 ADMIN_ID = 368422936
 
 def save_user(user_id, phone_number, full_name):
@@ -51,19 +45,19 @@ def contact_handler(update, context):
     full_name = update.message.from_user.full_name
     save_user(user_id, phone_number, full_name)
 
-    keyboard = [
-        [InlineKeyboardButton("🌟 ورود به کانال VIP", url="https://t.me/+Bnko8vYkvcRkYjdk")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # پیام لینک پرداخت همراه دکمه ورود به کانال
+    keyboard_channel = [[InlineKeyboardButton("🌟 ورود به کانال VIP", url="https://t.me/+Bnko8vYkvcRkYjdk")]]
+    reply_markup_channel = InlineKeyboardMarkup(keyboard_channel)
     sent_msg = update.message.reply_text(
         "✅ شماره شما ثبت شد. برای خرید اشتراک، لطفاً هزینه را پرداخت کنید:\n\n[لینک پرداخت](https://zarinp.al/634382)",
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=reply_markup
+        reply_markup=reply_markup_channel
     )
 
-    ticket_keyboard = [[InlineKeyboardButton("💬 تیکت به پشتیبانی", callback_data="support_ticket")]]
-    ticket_markup = InlineKeyboardMarkup(ticket_keyboard)
-    update.message.reply_text("در صورت نیاز به پشتیبانی، از این دکمه استفاده کنید:", reply_markup=ticket_markup)
+    # پیام جداگانه با دکمه تیکت پشتیبانی
+    keyboard_ticket = [[InlineKeyboardButton("💬 تیکت به پشتیبانی", callback_data="support_ticket")]]
+    reply_markup_ticket = InlineKeyboardMarkup(keyboard_ticket)
+    update.message.reply_text("در صورت نیاز به پشتیبانی، از این دکمه استفاده کنید:", reply_markup=reply_markup_ticket)
 
     context.job_queue.run_once(
         remove_channel_button, 600,
