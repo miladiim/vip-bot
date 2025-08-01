@@ -86,7 +86,78 @@ def check_expiry():
                 users[user_id]['active'] = False
                 save_users()
         time.sleep(3600)  # هر ساعت یکبار چک شود
+@bot.message_handler(commands=['admin'])
+def admin_menu(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.send_message(message.chat.id, "❌ شما اجازه دسترسی به این بخش را ندارید.")
+        return
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row('📋 لیست کاربران', '❌ حذف اشتراک')
+    markup.row('✅ فعال‌سازی اعتبار', '⏳ بررسی اعتبار')
+    markup.row('📣 ارسال پیام به همه', '🚫 لغو')
+    bot.send_message(message.chat.id, "👑 منوی مدیریت:", reply_markup=markup)
 
+@bot.message_handler(func=lambda message: message.from_user.id == ADMIN_ID)
+def handle_admin_commands(message):
+    text = message.text
+    if text == '📋 لیست کاربران':
+        # اینجا کد نمایش لیست کاربران بگذار
+        bot.send_message(message.chat.id, "لیست کاربران در حال حاضر آماده نیست.")
+    elif text == '❌ حذف اشتراک':
+        bot.send_message(message.chat.id, "آیدی عددی کاربر را برای حذف اشتراک ارسال کنید:")
+        bot.register_next_step_handler(message, remove_subscription)
+    elif text == '✅ فعال‌سازی اعتبار':
+        bot.send_message(message.chat.id, "آیدی عددی کاربر را برای فعال‌سازی اعتبار ارسال کنید:")
+        bot.register_next_step_handler(message, activate_subscription)
+    elif text == '⏳ بررسی اعتبار':
+        bot.send_message(message.chat.id, "آیدی عددی کاربر را برای بررسی اعتبار ارسال کنید:")
+        bot.register_next_step_handler(message, check_user_subscription)
+    elif text == '📣 ارسال پیام به همه':
+        bot.send_message(message.chat.id, "پیام خود را برای ارسال به همه کاربران ارسال کنید:")
+        bot.register_next_step_handler(message, broadcast_message)
+    elif text == '🚫 لغو':
+        bot.send_message(message.chat.id, "عملیات لغو شد.", reply_markup=telebot.types.ReplyKeyboardRemove())
+
+def remove_subscription(message):
+    user_id = message.text.strip()
+    if user_id in users:
+        users[user_id]['active'] = False
+        save_users()
+        bot.send_message(message.chat.id, f"اشتراک کاربر {user_id} حذف شد.")
+    else:
+        bot.send_message(message.chat.id, "کاربر یافت نشد.")
+
+def activate_subscription(message):
+    user_id = message.text.strip()
+    if user_id in users:
+        users[user_id]['active'] = True
+        users[user_id]['timestamp'] = int(time.time())
+        save_users()
+        bot.send_message(message.chat.id, f"اشتراک کاربر {user_id} فعال شد.")
+    else:
+        bot.send_message(message.chat.id, "کاربر یافت نشد.")
+
+def check_user_subscription(message):
+    user_id = message.text.strip()
+    if user_id in users:
+        start = users[user_id]['timestamp']
+        now = int(time.time())
+        days_left = 30 - ((now - start) // 86400)
+        status = "فعال" if users[user_id]['active'] else "غیرفعال"
+        bot.send_message(message.chat.id, f"کاربر {user_id}:\nوضعیت: {status}\nروزهای باقی‌مانده: {days_left}")
+    else:
+        bot.send_message(message.chat.id, "کاربر یافت نشد.")
+
+def broadcast_message(message):
+    text = message.text
+    count = 0
+    for user_id in users:
+        try:
+            bot.send_message(int(user_id), text)
+            count += 1
+        except:
+            pass
+    bot.send_message(ADMIN_ID, f"پیام به {count} کاربر ارسال شد.")
 if __name__ == '__main__':
     load_users()
     threading.Thread(target=check_expiry).start()
