@@ -1,4 +1,3 @@
-
 from flask import Flask, request
 import json
 import telebot
@@ -35,9 +34,7 @@ def handle_contact(message):
     user_id = message.from_user.id
     phone = message.contact.phone_number
     users[user_id] = {'phone': phone, 'timestamp': int(time.time())}
-    bot.send_message(ADMIN_ID, f"📥 کاربر جدید:
-آیدی: {user_id}
-شماره: {phone}")
+    bot.send_message(ADMIN_ID, f"📥 کاربر جدید:\nآیدی: {user_id}\nشماره: {phone}")
 
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add('🎫 تیکت به پشتیبانی')
@@ -49,8 +46,7 @@ def ask_support(message):
     bot.register_next_step_handler(message, forward_to_admin)
 
 def forward_to_admin(message):
-    bot.send_message(ADMIN_ID, f"📩 پیام از {message.from_user.id}:
-{message.text}")
+    bot.send_message(ADMIN_ID, f"📩 پیام از {message.from_user.id}:\n{message.text}")
     bot.send_message(message.chat.id, "✅ پیام شما ارسال شد. منتظر پاسخ باشید.")
 
 if __name__ == '__main__':
