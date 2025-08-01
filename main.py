@@ -1,11 +1,9 @@
 from flask import Flask, request
-import json
 import telebot
 import time
 
-API_TOKEN = 'YOUR_BOT_TOKEN'
-CHANNEL_ID = -1002891641618
-ADMIN_ID = YOUR_TELEGRAM_ID
+API_TOKEN = '494613530:AAHQFmKNzgoehLf9i35mIPn1Z8WhtkrBZa4'
+ADMIN_ID = 123456789  # آیدی عددی خودت رو اینجا بذار
 
 bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
@@ -18,7 +16,8 @@ def index():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
+    json_string = request.get_data().decode('utf-8')
+    update = telebot.types.Update.de_json(json_string)
     bot.process_new_updates([update])
     return 'ok'
 
@@ -27,7 +26,7 @@ def send_welcome(message):
     markup = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
     btn = telebot.types.KeyboardButton('📱 ارسال شماره موبایل', request_contact=True)
     markup.add(btn)
-    bot.send_message(message.chat.id, "سلام 👋 لطفاً شماره موبایلت رو با دکمه زیر ارسال کن:", reply_markup=markup)
+    bot.send_message(message.chat.id, "سلام 👋 لطفاً شماره موبایلت رو ارسال کن:", reply_markup=markup)
 
 @bot.message_handler(content_types=['contact'])
 def handle_contact(message):
@@ -50,4 +49,4 @@ def forward_to_admin(message):
     bot.send_message(message.chat.id, "✅ پیام شما ارسال شد. منتظر پاسخ باشید.")
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
