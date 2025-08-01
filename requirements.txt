@@ -1,2 +1,4 @@
-pytelegrambotapi
 Flask
+pyTelegramBotAPI
+pymongo
+requests
