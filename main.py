@@ -79,131 +79,117 @@ def check_expiry():
                     pass
                 users[user_id]['active'] = False
                 save_users()
-        time.sleep(3600)  # Check every hour
+        time.sleep(3600)
 
-# ===== دستورات جدید ادمین =====
-
-@bot.message_handler(commands=['remove'])
-def remove_user(message):
+@bot.message_handler(commands=['admin'])
+def admin_panel(message):
     if message.from_user.id != ADMIN_ID:
-        bot.reply_to(message, "❌ شما اجازه این دستور را ندارید.")
+        bot.send_message(message.chat.id, "❌ شما اجازه دسترسی به این بخش را ندارید.")
         return
-    
-    args = message.text.split()
-    if len(args) != 2:
-        bot.reply_to(message, "❗️ لطفاً دستور را به صورت زیر وارد کنید:\n/remove USER_ID یا /remove PHONE_NUMBER")
+
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("📜 لیست کاربران", "✅ فعال‌سازی اشتراک")
+    markup.add("⛔ حذف از کانال", "🔄 بررسی اعتبار")
+    bot.send_message(message.chat.id, "🛠 پنل مدیریت:", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == "📜 لیست کاربران")
+def list_users(message):
+    if message.from_user.id != ADMIN_ID:
         return
-    
-    identifier = args[1]
-    user_id_to_remove = None
-    
-    # اول تلاش می‌کنیم با آیدی تلگرام پیدا کنیم
-    if identifier.isdigit():
-        # اگر به عنوان آیدی بود
-        if identifier in users:
-            user_id_to_remove = identifier
-        else:
-            # جستجو بر اساس شماره موبایل
-            for uid, data in users.items():
-                if data.get('phone') == identifier:
-                    user_id_to_remove = uid
-                    break
-    
-    if not user_id_to_remove:
-        bot.reply_to(message, "❗️ کاربر یافت نشد.")
+    if not users:
+        bot.send_message(message.chat.id, "❗ هیچ کاربری ثبت نشده.")
         return
-    
-    try:
-        bot.kick_chat_member(CHANNEL_ID, int(user_id_to_remove))
-        users[user_id_to_remove]['active'] = False
+    msg = "📋 لیست کاربران:\n\n"
+    for uid, data in users.items():
+        remain_days = max(0, 30 - (int(time.time()) - data['timestamp']) // 86400)
+        msg += f"🧑‍💻 {uid} - 📱 {data['phone']} - ⏳ {remain_days} روز\n"
+    bot.send_message(message.chat.id, msg)
+
+@bot.message_handler(func=lambda m: m.text == "✅ فعال‌سازی اشتراک")
+def ask_user_for_activate(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    bot.send_message(message.chat.id, "📌 لطفاً آیدی عددی یا شماره موبایل کاربر را ارسال کنید:")
+    bot.register_next_step_handler(message, handle_activate_manual)
+
+def handle_activate_manual(message):
+    identifier = message.text.strip()
+    if identifier in users:
+        users[identifier]['timestamp'] = int(time.time())
+        users[identifier]['active'] = True
         save_users()
-        bot.reply_to(message, f"✅ کاربر با آیدی {user_id_to_remove} از کانال حذف شد.")
-    except Exception as e:
-        bot.reply_to(message, f"❌ خطا در حذف کاربر: {e}")
+        bot.send_message(int(identifier), "✅ اشتراک شما فعال شد.")
+        bot.send_message(message.chat.id, "👌 کاربر با موفقیت فعال شد.")
+    else:
+        found = False
+        for uid, data in users.items():
+            if data['phone'] == identifier:
+                users[uid]['timestamp'] = int(time.time())
+                users[uid]['active'] = True
+                save_users()
+                bot.send_message(int(uid), "✅ اشتراک شما فعال شد.")
+                bot.send_message(message.chat.id, "👌 کاربر با موفقیت فعال شد.")
+                found = True
+                break
+        if not found:
+            bot.send_message(message.chat.id, "❌ کاربر یافت نشد.")
 
-
-
-@bot.message_handler(commands=['status'])
-def check_status(message):
+@bot.message_handler(func=lambda m: m.text == "⛔ حذف از کانال")
+def ask_user_for_removal(message):
     if message.from_user.id != ADMIN_ID:
-        bot.reply_to(message, "❌ شما اجازه این دستور را ندارید.")
         return
-    
-    args = message.text.split()
-    if len(args) != 2:
-        bot.reply_to(message, "❗️ لطفاً دستور را به صورت زیر وارد کنید:\n/status USER_ID یا /status PHONE_NUMBER")
-        return
-    
-    identifier = args[1]
-    user_id_to_check = None
-    
-    if identifier.isdigit():
-        if identifier in users:
-            user_id_to_check = identifier
-        else:
-            for uid, data in users.items():
-                if data.get('phone') == identifier:
-                    user_id_to_check = uid
+    bot.send_message(message.chat.id, "❗ لطفاً آیدی عددی یا شماره موبایل کاربر را ارسال کنید:")
+    bot.register_next_step_handler(message, handle_manual_remove)
+
+def handle_manual_remove(message):
+    identifier = message.text.strip()
+    if identifier in users:
+        try:
+            bot.kick_chat_member(CHANNEL_ID, int(identifier))
+            users[identifier]['active'] = False
+            save_users()
+            bot.send_message(int(identifier), "⛔ اشتراک شما حذف شد و از کانال خارج شدید.")
+            bot.send_message(message.chat.id, "✅ کاربر حذف شد.")
+        except:
+            bot.send_message(message.chat.id, "⚠ خطا در حذف کاربر.")
+    else:
+        found = False
+        for uid, data in users.items():
+            if data['phone'] == identifier:
+                try:
+                    bot.kick_chat_member(CHANNEL_ID, int(uid))
+                    users[uid]['active'] = False
+                    save_users()
+                    bot.send_message(int(uid), "⛔ اشتراک شما حذف شد و از کانال خارج شدید.")
+                    bot.send_message(message.chat.id, "✅ کاربر حذف شد.")
+                    found = True
                     break
-    
-    if not user_id_to_check:
-        bot.reply_to(message, "❗️ کاربر یافت نشد.")
-        return
-    
-    data = users[user_id_to_check]
-    timestamp = data.get('timestamp')
-    if not timestamp:
-        bot.reply_to(message, "❗️ اطلاعات اشتراک این کاربر ناقص است.")
-        return
-    
-    now = int(time.time())
-    days_passed = (now - timestamp) // 86400
-    days_left = 30 - days_passed
-    if days_left < 0:
-        days_left = 0
-    
-    active = data.get('active', False)
-    status_text = "فعال" if active else "غیرفعال"
-    
-    bot.reply_to(message,
-                 f"وضعیت اشتراک کاربر:\nآیدی: {user_id_to_check}\nشماره: {data.get('phone')}\nوضعیت: {status_text}\nروزهای باقی‌مانده: {days_left} روز")
-@bot.message_handler(commands=['activate'])
-def activate_user(message):
+                except:
+                    bot.send_message(message.chat.id, "⚠ خطا در حذف کاربر.")
+        if not found:
+            bot.send_message(message.chat.id, "❌ کاربر یافت نشد.")
+
+@bot.message_handler(func=lambda m: m.text == "🔄 بررسی اعتبار")
+def ask_user_for_check(message):
     if message.from_user.id != ADMIN_ID:
-        bot.reply_to(message, "❌ شما اجازه این دستور را ندارید.")
         return
+    bot.send_message(message.chat.id, "📞 شماره موبایل یا آیدی عددی کاربر را ارسال کنید:")
+    bot.register_next_step_handler(message, handle_check_subscription)
 
-    args = message.text.split()
-    if len(args) != 2:
-        bot.reply_to(message, "❗️ لطفاً دستور را به صورت زیر وارد کنید:\n/activate USER_ID یا /activate PHONE_NUMBER")
-        return
-
-    identifier = args[1]
-    user_id_to_activate = None
-
-    if identifier.isdigit():
-        if identifier in users:
-            user_id_to_activate = identifier
-        else:
-            for uid, data in users.items():
-                if data.get('phone') == identifier:
-                    user_id_to_activate = uid
-                    break
-
-    if not user_id_to_activate:
-        bot.reply_to(message, "❗️ کاربر یافت نشد.")
-        return
-
-    try:
-        bot.unban_chat_member(CHANNEL_ID, int(user_id_to_activate))  # برای اطمینان از اینکه عضو بشه
-        users[user_id_to_activate]['active'] = True
-        users[user_id_to_activate]['timestamp'] = int(time.time())
-        save_users()
-        bot.send_message(int(user_id_to_activate),
-                         f"✅ اشتراک شما فعال شد! برای عضویت وارد کانال زیر شوید:\n{CHANNEL_LINK}")
-        bot.reply_to(message, f"✅ کاربر {user_id_to_activate} با موفقیت فعال شد.")
-    except Exception as e:
-        bot.reply_to(message, f"❌ خطا در فعال‌سازی کاربر: {e}")
+def handle_check_subscription(message):
+    identifier = message.text.strip()
+    uid = identifier if identifier in users else None
+    if not uid:
+        for k, v in users.items():
+            if v.get("phone") == identifier:
+                uid = k
+                break
+    if uid and uid in users:
+        data = users[uid]
+        remain = max(0, 30 - (int(time.time()) - data['timestamp']) // 86400)
+        bot.send_message(message.chat.id, f"📱 {data['phone']}\n⏳ {remain} روز اعتبار دارد.")
+    else:
+        bot.send_message(message.chat.id, "❌ کاربر یافت نشد.")
 
 if __name__ == '__main__':
     load_users()
