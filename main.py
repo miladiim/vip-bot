@@ -12,7 +12,6 @@ ZARINPAL_URL = 'https://zarinp.al/634382'
 
 bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
-
 users = {}
 
 @app.route('/', methods=['GET'])
@@ -56,26 +55,42 @@ def send_welcome(message):
 
 @bot.message_handler(content_types=['contact'])
 def handle_contact(message):
+    # بررسی صحت اینکه شماره برای خود کاربره
+    if message.contact.user_id != message.from_user.id:
+        bot.send_message(message.chat.id, "❌ لطفاً فقط شماره خودتان را از طریق دکمه ارسال کنید.")
+        return
+
     user_id = message.from_user.id
     phone = message.contact.phone_number
     users[str(user_id)] = {
         'phone': phone,
         'timestamp': int(time.time()),
-        'active': False  # هنوز فعال نشده
+        'active': False
     }
     save_users()
 
     bot.send_message(ADMIN_ID, f"📥 کاربر جدید ثبت شد\nآیدی: {user_id}\nشماره: {phone}")
-    bot.send_message(message.chat.id, f"✅ شماره شما ثبت شد.\nبرای پرداخت، روی لینک زیر کلیک کنید:\n{ZARINPAL_URL}")
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add('🎫 تیکت به پشتیبانی')
+    bot.send_message(message.chat.id, f"✅ شماره شما ثبت شد.\nبرای پرداخت، روی لینک زیر کلیک کنید:\n{ZARINPAL_URL}",
+                     reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == '🎫 تیکت به پشتیبانی')
 def ask_support(message):
     bot.send_message(message.chat.id, "📝 لطفاً پیام خود را بنویسید و ارسال کنید.")
+    bot.clear_step_handler_by_chat_id(message.chat.id)
     bot.register_next_step_handler(message, forward_to_admin)
 
 def forward_to_admin(message):
     bot.send_message(ADMIN_ID, f"📩 پیام از {message.from_user.id}:\n{message.text}")
     bot.send_message(message.chat.id, "✅ پیام شما ارسال شد. منتظر پاسخ باشید.")
+
+@bot.message_handler(commands=['users_backup'])
+def backup_users(message):
+    if message.from_user.id == ADMIN_ID:
+        save_users()
+        with open("users.json", "rb") as f:
+            bot.send_document(message.chat.id, f)
 
 @bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID)
 def admin_commands(message):
@@ -93,24 +108,27 @@ def admin_commands(message):
 
     elif text == '🗑️ حذف اشتراک':
         bot.send_message(message.chat.id, "لطفا آیدی عددی کاربر را برای حذف اشتراک ارسال کنید:")
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         bot.register_next_step_handler(message, delete_subscription)
 
     elif text == '✅ فعال‌سازی اعتبار':
         bot.send_message(message.chat.id, "لطفا آیدی عددی کاربر را برای فعال‌سازی ارسال کنید:")
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         bot.register_next_step_handler(message, activate_subscription)
 
     elif text == '🔍 بررسی اعتبار':
         bot.send_message(message.chat.id, "لطفا آیدی عددی کاربر را برای بررسی اعتبار ارسال کنید:")
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         bot.register_next_step_handler(message, check_subscription)
 
     elif text == '📢 ارسال پیام همگانی':
         bot.send_message(message.chat.id, "متن پیام همگانی را ارسال کنید:")
+        bot.clear_step_handler_by_chat_id(message.chat.id)
         bot.register_next_step_handler(message, broadcast_message)
 
     elif text == '❌ خروج':
         bot.send_message(message.chat.id, "خروج از پنل مدیریت انجام شد.")
         bot.send_message(message.chat.id, "برای شروع مجدد /start را بزنید.")
-        
     else:
         bot.send_message(message.chat.id, "دستور نامعتبر است. لطفا یکی از گزینه‌ها را انتخاب کنید.")
         admin_menu(message)
@@ -132,13 +150,16 @@ def delete_subscription(message):
 def activate_subscription(message):
     uid = message.text.strip()
     if uid in users:
+        now = int(time.time())
+        if users[uid].get('active') and now < users[uid]['timestamp'] + 30 * 86400:
+            users[uid]['timestamp'] += 30 * 86400  # تمدید
+        else:
+            users[uid]['timestamp'] = now
         users[uid]['active'] = True
-        users[uid]['timestamp'] = int(time.time())
         save_users()
         try:
             bot.unban_chat_member(CHANNEL_ID, int(uid))
-            # ارسال لینک کانال به صورت شیشه‌ای (نمی‌تونه راحت کپی بشه)
-            bot.send_message(int(uid), f"اشتراک شما فعال شد.\nبرای ورود به کانال VIP روی دکمه زیر بزنید.", 
+            bot.send_message(int(uid), f"✅ اشتراک شما فعال شد.\nبرای ورود به کانال VIP روی دکمه زیر بزنید.",
                              reply_markup=telebot.types.InlineKeyboardMarkup().add(
                                  telebot.types.InlineKeyboardButton("ورود به کانال VIP", url=CHANNEL_LINK)
                              ))
@@ -187,12 +208,11 @@ def check_expiry():
                 users[user_id]['active'] = False
                 save_users()
             elif data.get('active') and 30 * 86400 - (now - data['timestamp']) <= 86400:
-                # یک روز مانده پیام یادآوری بفرست
                 try:
                     bot.send_message(int(user_id), "⏳ اشتراک شما فردا به پایان می‌رسد. لطفا برای تمدید اقدام کنید.")
                 except:
                     pass
-        time.sleep(3600)  # هر ساعت چک می‌کند
+        time.sleep(3600)
 
 if __name__ == '__main__':
     load_users()
