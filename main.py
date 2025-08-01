@@ -3,7 +3,7 @@ import telebot
 import time
 
 API_TOKEN = '494613530:AAHQFmKNzgoehLf9i35mIPn1Z8WhtkrBZa4'
-ADMIN_ID = 123456789  # آیدی عددی خودت رو اینجا بذار
+ADMIN_ID = 368422936  # آیدی عددی خودت رو اینجا بذار
 
 bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
