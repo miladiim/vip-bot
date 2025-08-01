@@ -4,8 +4,8 @@ import os
 
 app = Flask(__name__)
 
-TOKEN = "توکن_ربات_اینجا"
-CHANNEL_ID = "@کانال_شما"
+TOKEN = "494613530:AAHQFmKNzgoehLf9i35mIPn1Z8WhtkrBZa4"
+CHANNEL_ID = "https://t.me/+Bnko8vYkvcRkYjdk"
 ZARINPAL_URL = "https://zarinp.al/634382"
 DISCOUNT_CODE = "test50"
 
