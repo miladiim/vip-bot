@@ -1,4 +1,3 @@
-
 from flask import Flask, request
 import json, requests
 
@@ -14,29 +13,43 @@ users = {}
 @app.route("/", methods=["POST"])
 def webhook():
     data = request.get_json()
-    if "message" in data:
-        chat_id = data["message"]["chat"]["id"]
-        text = data["message"].get("text", "")
-        if text == "/start":
-            keyboard = {
-                "keyboard": [[{"text": "📱 ارسال شماره موبایل", "request_contact": True}]],
-                "one_time_keyboard": True,
-                "resize_keyboard": True
-            }
-            send_message(chat_id, "لطفاً شماره موبایل خود را ارسال کنید 👇", keyboard)
-        elif "contact" in data["message"]:
-            phone = data["message"]["contact"]["phone_number"]
+    if not data:
+        return "ok"
+
+    message = data.get("message")
+    if not message:
+        return "ok"
+
+    chat = message.get("chat", {})
+    chat_id = chat.get("id")
+    if not chat_id:
+        return "ok"
+
+    text = message.get("text", "")
+    contact = message.get("contact")
+
+    if text == "/start":
+        keyboard = {
+            "keyboard": [[{"text": "📱 ارسال شماره موبایل", "request_contact": True}]],
+            "one_time_keyboard": True,
+            "resize_keyboard": True
+        }
+        send_message(chat_id, "لطفاً شماره موبایل خود را ارسال کنید 👇", keyboard)
+    elif contact:
+        phone = contact.get("phone_number")
+        if phone:
             users[str(chat_id)] = phone
             save_users()
             send_message(chat_id, f"شماره {phone} ثبت شد ✅\nکد تخفیف داری؟ بزن یا بفرست /skip", None)
-        elif text.lower() == DISCOUNT_CODE:
-            send_message(chat_id, f"✅ کد تخفیف '{text}' پذیرفته شد!\nبرای پرداخت روی لینک زیر بزن:
-{ZARINPAL_URL}", None)
-        elif text == "/skip":
-            send_message(chat_id, f"باشه!\nبرای پرداخت روی لینک زیر بزن:
-{ZARINPAL_URL}", None)
         else:
-            send_message(chat_id, "دستور ناشناخته است. لطفاً /start بزنید.", None)
+            send_message(chat_id, "شماره موبایل پیدا نشد. لطفا دوباره ارسال کنید.", None)
+    elif text.lower() == DISCOUNT_CODE:
+        send_message(chat_id, f"✅ کد تخفیف '{text}' پذیرفته شد!\nبرای پرداخت روی لینک زیر بزن:\n{ZARINPAL_URL}", None)
+    elif text == "/skip":
+        send_message(chat_id, f"باشه!\nبرای پرداخت روی لینک زیر بزن:\n{ZARINPAL_URL}", None)
+    else:
+        send_message(chat_id, "دستور ناشناخته است. لطفاً /start بزنید.", None)
+
     return "ok"
 
 def send_message(chat_id, text, keyboard=None):
@@ -46,12 +59,12 @@ def send_message(chat_id, text, keyboard=None):
         "text": text
     }
     if keyboard:
-        payload["reply_markup"] = json.dumps(keyboard)
-    requests.post(url, data=payload)
+        payload["reply_markup"] = keyboard
+    requests.post(url, json=payload)
 
 def save_users():
-    with open("data.json", "w") as f:
-        json.dump(users, f)
+    with open("data.json", "w", encoding="utf-8") as f:
+        json.dump(users, f, ensure_ascii=False, indent=2)
 
 if __name__ == "__main__":
     app.run()
