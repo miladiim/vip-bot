@@ -137,11 +137,10 @@ def activate_subscription(message):
         save_users()
         try:
             bot.unban_chat_member(CHANNEL_ID, int(uid))
-            # ارسال لینک کانال به صورت شیشه‌ای (نمی‌تونه راحت کپی بشه)
-            bot.send_message(int(uid), f"اشتراک شما فعال شد.\nبرای ورود به کانال VIP روی دکمه زیر بزنید.", 
-                             reply_markup=telebot.types.InlineKeyboardMarkup().add(
-                                 telebot.types.InlineKeyboardButton("ورود به کانال VIP", url=CHANNEL_LINK)
-                             ))
+            keyboard = telebot.types.InlineKeyboardMarkup()
+            button = telebot.types.InlineKeyboardButton(text="ورود به کانال VIP", url=CHANNEL_LINK)
+            keyboard.add(button)
+            bot.send_message(int(uid), "اشتراک شما فعال شد.\nبرای ورود به کانال VIP روی دکمه زیر بزنید.", reply_markup=keyboard)
         except Exception as e:
             bot.send_message(ADMIN_ID, f"خطا در ارسال لینک کانال: {e}")
         bot.send_message(ADMIN_ID, f"اشتراک کاربر {uid} فعال شد و لینک کانال ارسال شد.")
