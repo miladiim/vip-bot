@@ -1,37 +1,38 @@
-
 import logging
 from flask import Flask, request
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from pymongo import MongoClient
 import json
-import requests
 
-# Load config
-with open("config.json", "r") as f:
-    config = json.load(f)
+# اطلاعات ثابت
+TOKEN = "494613530:AAHQFmKNzgoehLf9i35mIPn1Z8WhtkrBZa4"
+ZARINPAL_URL = "https://zarinp.al/634382"
+CHANNEL_LINK = "https://t.me/+Bnko8vYkvcRkYjdk"
+ADMIN_ID = 368422936
+MONGO_URI = "mongodb+srv://vipadmin:milad137555@cluster0.g6mqucj.mongodb.net"
+DB_NAME = "vip_bot"
 
-TOKEN = config["token"]
-CHANNEL_LINK = config["channel"]
-ZARINPAL_URL = config["zarinpal_url"]
-ADMIN_ID = 368422936  # آیدی عددی شما
-
-# MongoDB setup
-client = MongoClient("mongodb+srv://vipadmin:milad137555@cluster0.g6mqucj.mongodb.net")
-db = client["vip_bot"]
+# اتصال به MongoDB
+client = MongoClient(MONGO_URI)
+db = client[DB_NAME]
 users_col = db["users"]
 tickets_col = db["tickets"]
 
+# اپلیکیشن Flask برای وب‌هوک
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
-# Telegram bot handlers
+# ساخت اپلیکیشن تلگرام
+bot_app = ApplicationBuilder().token(TOKEN).build()
+
+# هندلر شروع
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
     button = KeyboardButton("ارسال شماره 📱", request_contact=True)
     markup = ReplyKeyboardMarkup([[button]], resize_keyboard=True, one_time_keyboard=True)
     await update.message.reply_text("برای ادامه لطفا شماره موبایل خود را ارسال کنید:", reply_markup=markup)
 
+# هندلر دریافت شماره
 async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     contact = update.message.contact
     user_id = update.effective_user.id
@@ -51,36 +52,41 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text("در صورت نیاز به پشتیبانی از این گزینه استفاده کنید:", reply_markup=markup)
 
+# هندلر ارسال تیکت
 async def handle_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    message = update.message.text
+
     tickets_col.insert_one({
         "user_id": user_id,
-        "message": update.message.text
+        "message": message
     })
-    await context.bot.send_message(chat_id=ADMIN_ID, text=f"🎟 تیکت جدید از {user_id}:\n{update.message.text}")
+
+    await context.bot.send_message(chat_id=ADMIN_ID, text=f"🎟 تیکت جدید از {user_id}:\n{message}")
     await update.message.reply_text("✅ پیام شما به پشتیبانی ارسال شد.")
 
+# هندلر عمومی
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    if "تیکت" in text:
+    if "تیکت" in update.message.text:
         await handle_ticket(update, context)
 
+# وب‌هوک
 @app.route("/", methods=["POST"])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), Application.builder().token(TOKEN).build().bot)
-    Application.builder().token(TOKEN).build().process_update(update)
+    update = Update.de_json(request.get_json(force=True), bot_app.bot)
+    bot_app.update_queue.put_nowait(update)
     return "ok"
 
-@app.route("/")
+# صفحه تست
+@app.route("/", methods=["GET"])
 def index():
-    return "Bot is running."
+    return "ربات فعال است."
 
-def main():
-    app_telegram = Application.builder().token(TOKEN).build()
-    app_telegram.add_handler(CommandHandler("start", start))
-    app_telegram.add_handler(MessageHandler(filters.CONTACT, handle_contact))
-    app_telegram.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))
-    app_telegram.run_polling()
+# تعریف هندلرها
+bot_app.add_handler(CommandHandler("start", start))
+bot_app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))
 
+# اجرای فلask
 if __name__ == "__main__":
-    main()
+    app.run(host="0.0.0.0", port=5000)
