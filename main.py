@@ -31,16 +31,6 @@ def webhook():
     bot.process_new_updates([update])
     return 'ok'
 
-# حذف پیام بعد از تاخیر
-def delete_message_after_delay(chat_id, message_id, delay=120):
-    def delayed_delete():
-        time.sleep(delay)
-        try:
-            bot.delete_message(chat_id, message_id)
-        except:
-            pass
-    threading.Thread(target=delayed_delete).start()
-
 # ارسال منوی اصلی فارسی
 def send_main_menu(chat_id):
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -78,7 +68,17 @@ def handle_contact(message):
 
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add(telebot.types.KeyboardButton('💳 پرداخت'), telebot.types.KeyboardButton('🎫 تیکت به پشتیبانی'))
-    bot.send_message(message.chat.id, f"✅ شماره شما ثبت شد.\nبرای پرداخت، روی لینک زیر کلیک کنید:\n{ZARINPAL_URL}", reply_markup=markup)
+    bot.send_message(message.chat.id, f"✅ شماره شما ثبت شد.\n\nتا دو دقیقه دیگر این پیام حذف می‌شود.\n\nبرای پرداخت، روی لینک زیر کلیک کنید:\n{ZARINPAL_URL}", reply_markup=markup)
+
+    # حذف پیام پس از 120 ثانیه
+    def delete_message_later(chat_id, message_id):
+        time.sleep(120)
+        try:
+            bot.delete_message(chat_id, message_id)
+        except:
+            pass
+
+    threading.Thread(target=delete_message_later, args=(message.chat.id, message.message_id)).start()
 
 @bot.message_handler(func=lambda m: m.text == '💳 پرداخت')
 def payment_link(message):
@@ -95,28 +95,26 @@ def forward_to_admin(message):
         "text": message.text,
         "timestamp": int(time.time())
     })
-    
     markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(telebot.types.InlineKeyboardButton("↩️ پاسخ به کاربر", callback_data=f"reply_{message.from_user.id}"))
-    
+    markup.add(telebot.types.InlineKeyboardButton("💬 پاسخ خصوصی", callback_data=f"reply_{message.from_user.id}"))
     bot.send_message(ADMIN_ID, f"📩 پیام از {message.from_user.id}:\n{message.text}", reply_markup=markup)
     bot.send_message(message.chat.id, "✅ پیام شما ارسال شد. منتظر پاسخ باشید.")
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("reply_"))
-def handle_reply_callback(call):
-    user_id = int(call.data.split("_")[1])
+@bot.callback_query_handler(func=lambda call: call.data.startswith('reply_'))
+def handle_admin_reply(call):
     if call.from_user.id != ADMIN_ID:
         bot.answer_callback_query(call.id, "شما دسترسی ندارید.")
         return
-    bot.send_message(ADMIN_ID, "📝 لطفاً پاسخ خود را ارسال کنید:")
-    bot.register_next_step_handler_by_chat_id(ADMIN_ID, lambda message: send_private_reply(message, user_id))
+    user_id = int(call.data.split('_')[1])
+    bot.send_message(ADMIN_ID, "پیام پاسخ خود را ارسال کنید:")
+    bot.register_next_step_handler_by_chat_id(ADMIN_ID, lambda msg: send_private_reply(msg, user_id))
 
 def send_private_reply(message, user_id):
     try:
-        bot.send_message(user_id, f"💬 پاسخ پشتیبانی:\n{message.text}")
-        bot.send_message(ADMIN_ID, "✅ پاسخ ارسال شد.")
+        bot.send_message(user_id, f"📩 پاسخ پشتیبانی:\n{message.text}")
+        bot.send_message(ADMIN_ID, "✅ پاسخ با موفقیت ارسال شد.")
     except:
-        bot.send_message(ADMIN_ID, "❌ ارسال پاسخ به کاربر ناموفق بود.")
+        bot.send_message(ADMIN_ID, "❗️خطا در ارسال پاسخ.")
 
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
@@ -153,21 +151,10 @@ def confirm_user_step(message):
     try:
         user_id = int(message.text)
         users_collection.update_one({"_id": user_id}, {"$set": {"active": True, "timestamp": int(time.time())}})
-        
-        sent_msg = bot.send_message(user_id, 
-            f"✅ اشتراک شما فعال شد.\n\n"
-            f"📥 [عضویت در کانال VIP]({CHANNEL_LINK})\n\n"
-            f"⚠️ این پیام تا دو دقیقه دیگر حذف می‌شود.", 
-            parse_mode='Markdown'
-        )
-        
+        bot.send_message(user_id, f"✅ اشتراک شما فعال شد.\n\n📥 [عضویت در کانال VIP]({CHANNEL_LINK})", parse_mode='Markdown')
         bot.send_message(ADMIN_ID, "✅ کاربر با موفقیت فعال شد.")
-        
-        # حذف پیام لینک کانال بعد 2 دقیقه
-        delete_message_after_delay(user_id, sent_msg.message_id, delay=120)
-
-    except Exception as e:
-        bot.send_message(ADMIN_ID, f"❗️ خطا در فعال‌سازی: {e}")
+    except:
+        bot.send_message(ADMIN_ID, "❗️ خطا در فعال‌سازی.")
 
 def remove_user_step(message):
     try:
@@ -198,4 +185,11 @@ def check_expiry():
             if now - user['timestamp'] > 30 * 86400:
                 try:
                     bot.kick_chat_member(CHANNEL_ID, user['_id'])
-                    bot.send_message(user['_id'], "⛔️ اشتراک شما به پایان رسیده و از کانال
+                    bot.send_message(user['_id'], "⛔️ اشتراک شما به پایان رسیده و از کانال VIP حذف شدید.")
+                except:
+                    pass
+                users_collection.update_one({"_id": user['_id']}, {"$set": {"active": False}})
+        time.sleep(3600)
+
+if __name__ == '__main__':
+    threading
