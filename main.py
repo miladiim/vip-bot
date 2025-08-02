@@ -1,77 +1,82 @@
-from flask import Flask, request
 import telebot
-import time
-import threading
-import json
+from telebot import types
+from flask import Flask, request
 from pymongo import MongoClient
+from datetime import datetime, timedelta
+import pytz
+import threading
+import time
+import os
 
-# ==== اطلاعات شخصی ====
-API_TOKEN = '494613530:AAHQFmKNzgoehLf9i35mIPn1Z8WhtkrBZa4'
+# --- تنظیمات اصلی ---
+TOKEN = '494613530:AAHQFmKNzgoehLf9i35mIPn1Z8WhtkrBZa4'
+ADMIN_ID = 368422936
 CHANNEL_ID = -1002891641618
 CHANNEL_LINK = 'https://t.me/+Bnko8vYkvcRkYjdk'
-ADMIN_ID = 368422936
 ZARINPAL_URL = 'https://zarinp.al/634382'
 
-# ==== MongoDB Atlas ====
+# --- MongoDB Atlas ---
 client = MongoClient("mongodb+srv://vipadmin:milad137555@cluster0.g6mqucj.mongodb.net")
 db = client["vip_bot"]
 users_collection = db["users"]
 tickets_collection = db["tickets"]
 
-bot = telebot.TeleBot(API_TOKEN)
+bot = telebot.TeleBot(TOKEN, parse_mode='HTML')
 app = Flask(__name__)
 
-@app.route('/', methods=['GET'])
-def index():
-    return 'Bot is running'
+# --- حذف پیام بعد از 2 دقیقه ---
+def delete_message_later(chat_id, message_id, delay=120):
+    def job():
+        try:
+            bot.delete_message(chat_id, message_id)
+        except:
+            pass
+    threading.Timer(delay, job).start()
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
-    bot.process_new_updates([update])
-    return 'ok'
-
-# ارسال منوی اصلی فارسی
-def send_main_menu(chat_id):
-    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(telebot.types.KeyboardButton('💳 پرداخت'), telebot.types.KeyboardButton('🎫 تیکت به پشتیبانی'))
-    bot.send_message(chat_id, "📋 منوی اصلی:", reply_markup=markup)
-
+# --- /start ---
 @bot.message_handler(commands=['start'])
-def send_welcome(message):
-    chat_id = message.chat.id
-    user_id = message.from_user.id
-    user = users_collection.find_one({"_id": user_id})
-
-    if user and "phone" in user:
-        send_main_menu(chat_id)
-    else:
-        markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        btn = telebot.types.KeyboardButton('📱 ارسال شماره موبایل', request_contact=True)
+def start(message):
+    user = users_collection.find_one({"user_id": message.from_user.id})
+    if not user:
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        btn = types.KeyboardButton("📱 ارسال شماره", request_contact=True)
         markup.add(btn)
-        bot.send_message(chat_id, "سلام 👋 لطفاً شماره موبایلت رو با دکمه زیر ارسال کن:", reply_markup=markup)
+        bot.send_message(message.chat.id, "👋 سلام! لطفاً شماره موبایل خود را ارسال کنید:", reply_markup=markup)
+    else:
+        send_main_menu(message.chat.id)
 
+# --- ثبت شماره تلفن ---
 @bot.message_handler(content_types=['contact'])
 def handle_contact(message):
-    user_id = message.from_user.id
     phone = message.contact.phone_number
-
     users_collection.update_one(
-        {"_id": user_id},
-        {"$set": {"phone": phone, "timestamp": int(time.time()), "active": False}},
+        {"user_id": message.from_user.id},
+        {"$set": {"phone": phone, "user_id": message.from_user.id, "registered_at": datetime.utcnow()}},
         upsert=True
     )
+    bot.send_message(message.chat.id, "✅ شماره شما ثبت شد.")
+    send_main_menu(message.chat.id)
 
-    bot.send_message(ADMIN_ID, f"📥 کاربر جدید ثبت شد\nآیدی: {user_id}\nشماره: {phone}")
+# --- منوی اصلی ---
+def send_main_menu(chat_id):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("💳 خرید عضویت VIP", "📢 لینک کانال VIP")
+    markup.add("🎫 تیکت به پشتیبانی")
+    bot.send_message(chat_id, "منوی اصلی:", reply_markup=markup)
 
-    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(telebot.types.KeyboardButton('💳 پرداخت'), telebot.types.KeyboardButton('🎫 تیکت به پشتیبانی'))
-    bot.send_message(message.chat.id, f"✅ شماره شما ثبت شد.\nبرای پرداخت، روی لینک زیر کلیک کنید:\n{ZARINPAL_URL}", reply_markup=markup)
+# --- خرید عضویت VIP ---
+@bot.message_handler(func=lambda m: m.text == "💳 خرید عضویت VIP")
+def buy_vip(message):
+    bot.send_message(message.chat.id, f"برای خرید، روی لینک زیر کلیک کنید:\n{ZARINPAL_URL}")
 
-@bot.message_handler(func=lambda m: m.text == '💳 پرداخت')
-def payment_link(message):
-    bot.send_message(message.chat.id, f"💳 برای پرداخت، روی لینک زیر کلیک کنید:\n{ZARINPAL_URL}")
+# --- لینک کانال VIP ---
+@bot.message_handler(func=lambda m: m.text == "📢 لینک کانال VIP")
+def send_channel(message):
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🌟 ورود به کانال", url=CHANNEL_LINK))
+    bot.send_message(message.chat.id, "برای ورود به کانال VIP، روی دکمه زیر کلیک کنید:", reply_markup=markup)
 
+# --- تیکت پشتیبانی ---
 @bot.message_handler(func=lambda m: m.text == '🎫 تیکت به پشتیبانی')
 def ask_support(message):
     bot.send_message(message.chat.id, "📝 لطفاً پیام خود را بنویسید و ارسال کنید.")
@@ -83,84 +88,57 @@ def forward_to_admin(message):
         "text": message.text,
         "timestamp": int(time.time())
     })
-    bot.send_message(ADMIN_ID, f"📩 پیام از {message.from_user.id}:\n{message.text}")
-    bot.send_message(message.chat.id, "✅ پیام شما ارسال شد. منتظر پاسخ باشید.")
 
-@bot.message_handler(commands=['admin'])
-def admin_panel(message):
-    if message.from_user.id != ADMIN_ID:
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("💬 پاسخ به کاربر", callback_data=f"reply_{message.from_user.id}"))
+
+    sent = bot.send_message(
+        ADMIN_ID,
+        f"📩 پیام از {message.from_user.id}:\n{message.text}\n\n🔗 کانال VIP:",
+        reply_markup=markup
+    )
+
+    # لینک کانال به‌صورت شیشه‌ای
+    channel_button = types.InlineKeyboardMarkup()
+    channel_button.add(types.InlineKeyboardButton("🌟 کانال VIP", url=CHANNEL_LINK))
+    bot.send_message(ADMIN_ID, "لینک کانال:", reply_markup=channel_button)
+
+    # حذف بعد از ۲ دقیقه
+    delete_message_later(ADMIN_ID, sent.message_id, 120)
+
+# --- پاسخ به کاربر توسط ادمین ---
+@bot.callback_query_handler(func=lambda call: call.data.startswith("reply_"))
+def callback_reply(call):
+    if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "❌ دسترسی ندارید")
         return
-    markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(telebot.types.InlineKeyboardButton("📋 لیست کاربران", callback_data='list_users'))
-    markup.add(telebot.types.InlineKeyboardButton("🟢 فعال‌سازی دستی", callback_data='confirm_user'))
-    markup.add(telebot.types.InlineKeyboardButton("❌ حذف اشتراک", callback_data='remove_user'))
-    markup.add(telebot.types.InlineKeyboardButton("📢 ارسال پیام همگانی", callback_data='broadcast'))
-    bot.send_message(message.chat.id, "🛠 پنل مدیریت:", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: True)
-def callback_query(call):
-    if call.data == "list_users":
-        users = users_collection.find()
-        text = "📋 لیست کاربران:\n"
-        for u in users:
-            phone = u.get("phone", "-")
-            active = "✅" if u.get("active") else "❌"
-            text += f"{u['_id']} | {phone} | {active}\n"
-        bot.send_message(ADMIN_ID, text or "❗️کاربری یافت نشد.")
-    elif call.data == "confirm_user":
-        bot.send_message(ADMIN_ID, "لطفاً آیدی عددی کاربر را بفرستید تا فعال شود.")
-        bot.register_next_step_handler(call.message, confirm_user_step)
-    elif call.data == "remove_user":
-        bot.send_message(ADMIN_ID, "آیدی عددی کاربر برای حذف را بفرستید:")
-        bot.register_next_step_handler(call.message, remove_user_step)
-    elif call.data == "broadcast":
-        bot.send_message(ADMIN_ID, "پیامی که باید به همه ارسال شود را بفرستید:")
-        bot.register_next_step_handler(call.message, broadcast_step)
+    user_id = int(call.data.split("_")[1])
+    bot.answer_callback_query(call.id, "🛠 لطفاً پیام خود را برای پاسخ به کاربر ارسال کنید.")
+    bot.send_message(ADMIN_ID, f"📝 لطفاً پیام خود را برای پاسخ به کاربر {user_id} بنویسید:")
 
-def confirm_user_step(message):
+    bot.register_next_step_handler_by_chat_id(ADMIN_ID, lambda msg: send_reply_to_user(msg, user_id))
+
+def send_reply_to_user(message, user_id):
     try:
-        user_id = int(message.text)
-        users_collection.update_one({"_id": user_id}, {"$set": {"active": True, "timestamp": int(time.time())}})
-        bot.send_message(user_id, f"✅ اشتراک شما فعال شد.\n\n📥 [عضویت در کانال VIP]({CHANNEL_LINK})", parse_mode='Markdown')
-        bot.send_message(ADMIN_ID, "✅ کاربر با موفقیت فعال شد.")
+        bot.send_message(user_id, f"📩 پاسخ ادمین:\n{message.text}")
+        bot.send_message(ADMIN_ID, "✅ پیام شما برای کاربر ارسال شد.")
     except:
-        bot.send_message(ADMIN_ID, "❗️ خطا در فعال‌سازی.")
+        bot.send_message(ADMIN_ID, "❗️ ارسال پیام به کاربر ناموفق بود.")
 
-def remove_user_step(message):
-    try:
-        user_id = int(message.text)
-        users_collection.update_one({"_id": user_id}, {"$set": {"active": False}})
-        bot.send_message(user_id, "⛔️ اشتراک شما غیرفعال شد.")
-        bot.send_message(ADMIN_ID, "✅ اشتراک کاربر حذف شد.")
-    except:
-        bot.send_message(ADMIN_ID, "❗️ خطا در حذف.")
+# --- وبهوک Flask ---
+@app.route(f"/{TOKEN}", methods=["POST"])
+def webhook():
+    bot.process_new_updates([telebot.types.Update.de_json(request.stream.read().decode("utf-8"))])
+    return "OK", 200
 
-def broadcast_step(message):
-    text = message.text
-    users = users_collection.find()
-    count = 0
-    for u in users:
-        try:
-            bot.send_message(u['_id'], text)
-            count += 1
-        except:
-            continue
-    bot.send_message(ADMIN_ID, f"📤 پیام به {count} کاربر ارسال شد.")
+@app.route("/", methods=["GET"])
+def index():
+    return "ربات فعال است."
 
-def check_expiry():
-    while True:
-        now = int(time.time())
-        users = users_collection.find({"active": True})
-        for user in users:
-            if now - user['timestamp'] > 30 * 86400:
-                try:
-                    bot.kick_chat_member(CHANNEL_ID, user['_id'])
-                    bot.send_message(user['_id'], "⛔️ اشتراک شما به پایان رسیده و از کانال VIP حذف شدید.")
-                except:
-                    pass
-                users_collection.update_one({"_id": user['_id']}, {"$set": {"active": False}})
-        time.sleep(3600)
-
-if __name__ == '__main__':
-    threading.Thread(target=check_expiry).start()
-    app.run(host='0.0.0.0', port=10000)
+# --- راه‌اندازی وبهوک ---
+if __name__ == "__main__":
+    bot.remove_webhook()
+    time.sleep(1)
+    bot.set_webhook(url="https://vip-bot-s9p9.onrender.com/" + TOKEN)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
