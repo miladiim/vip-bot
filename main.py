@@ -116,5 +116,6 @@ def main():
     print("🤖 ربات VIP اجرا شد...")
     app.run_polling()
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    import asyncio
+    asyncio.run(app.run_polling())
