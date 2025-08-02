@@ -2,3 +2,4 @@ Flask
 pymongo
 pytz
 python-telegram-bot==13.15
+pyTelegramBotAPI
