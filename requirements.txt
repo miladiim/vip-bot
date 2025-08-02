@@ -1,4 +1,5 @@
-python-telegram-bot==13.15
+Flask
 pymongo
 pytz
-Flask
+Pillow
+python-telegram-bot>=20.0
