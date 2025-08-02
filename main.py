@@ -63,9 +63,10 @@ def handle_contact(message):
         upsert=True
     )
 
-    bot.send_message(ADMIN_ID, f"📥 کاربر جدید ثبت شد
+   bot.send_message(ADMIN_ID, f"""📥 کاربر جدید ثبت شد
 آیدی: {user_id}
-شماره: {phone}")
+شماره: {phone}""")
+
 
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add(telebot.types.KeyboardButton('💳 پرداخت'), telebot.types.KeyboardButton('🎫 تیکت به پشتیبانی'))
