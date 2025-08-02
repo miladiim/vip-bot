@@ -192,4 +192,7 @@ def check_expiry():
         time.sleep(3600)
 
 if __name__ == '__main__':
-    threading
+    threading.Thread(target=check_expiry, daemon=True).start()
+    bot.remove_webhook()
+    bot.set_webhook(url='https://vip-bot-s9p9.onrender.com/webhook')
+    app.run(host="0.0.0.0", port=5000)
