@@ -1,92 +1,108 @@
-import logging
 from flask import Flask, request
-from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-from pymongo import MongoClient
-import json
+import telebot
+import time
+import threading
+import pymongo
+import pytz
 
-# اطلاعات ثابت
-TOKEN = "494613530:AAHQFmKNzgoehLf9i35mIPn1Z8WhtkrBZa4"
-ZARINPAL_URL = "https://zarinp.al/634382"
-CHANNEL_LINK = "https://t.me/+Bnko8vYkvcRkYjdk"
+# --- تنظیمات ---
+API_TOKEN = '494613530:AAHQFmKNzgoehLf9i35mIPn1Z8WhtkrBZa4'
+CHANNEL_ID = -1002891641618
+CHANNEL_LINK = 'https://t.me/+Bnko8vYkvcRkYjdk'
 ADMIN_ID = 368422936
-MONGO_URI = "mongodb+srv://vipadmin:milad137555@cluster0.g6mqucj.mongodb.net"
-DB_NAME = "vip_bot"
+ZARINPAL_URL = 'https://zarinp.al/634382'
+MONGO_URI = 'mongodb+srv://vipadmin:milad137555@cluster0.g6mqucj.mongodb.net/?retryWrites=true&w=majority'
 
-# اتصال به MongoDB
-client = MongoClient(MONGO_URI)
-db = client[DB_NAME]
-users_col = db["users"]
-tickets_col = db["tickets"]
+# --- اتصال به MongoDB ---
+client = pymongo.MongoClient(MONGO_URI)
+db = client['vip_bot']
+users_col = db['users']
 
-# اپلیکیشن Flask برای وب‌هوک
+# --- ربات و اپلیکیشن وب ---
+bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
-logging.basicConfig(level=logging.INFO)
 
-# ساخت اپلیکیشن تلگرام
-bot_app = ApplicationBuilder().token(TOKEN).build()
+@app.route('/')
+def index():
+    return '✅ Bot is Running'
 
-# هندلر شروع
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    button = KeyboardButton("ارسال شماره 📱", request_contact=True)
-    markup = ReplyKeyboardMarkup([[button]], resize_keyboard=True, one_time_keyboard=True)
-    await update.message.reply_text("برای ادامه لطفا شماره موبایل خود را ارسال کنید:", reply_markup=markup)
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
+    bot.process_new_updates([update])
+    return 'OK'
 
-# هندلر دریافت شماره
-async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    contact = update.message.contact
-    user_id = update.effective_user.id
+# --- شروع ربات ---
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    user_id = message.from_user.id
+    user = users_col.find_one({'_id': user_id})
+    
+    if user and user.get('phone'):
+        # اگر قبلاً شماره داده، دکمه تیکت نشون بده
+        markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+        markup.add(telebot.types.KeyboardButton('🎫 تیکت به پشتیبانی'))
+        bot.send_message(user_id, "✅ شماره شما قبلاً ثبت شده است.", reply_markup=markup)
+    else:
+        markup = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+        btn = telebot.types.KeyboardButton('📱 ارسال شماره موبایل', request_contact=True)
+        markup.add(btn)
+        bot.send_message(user_id, "سلام 👋 لطفاً شماره موبایلت رو با دکمه زیر ارسال کن:", reply_markup=markup)
 
-    users_col.update_one({"user_id": user_id}, {"$set": {
-        "user_id": user_id,
-        "phone_number": contact.phone_number,
-        "step": "waiting_payment"
-    }}, upsert=True)
+# --- ذخیره شماره موبایل ---
+@bot.message_handler(content_types=['contact'])
+def handle_contact(message):
+    user_id = message.from_user.id
+    phone = message.contact.phone_number
 
-    await update.message.reply_text(
-        f"✅ شماره شما ثبت شد.\nاکنون برای فعال‌سازی عضویت VIP روی لینک زیر پرداخت را انجام دهید:\n\n{ZARINPAL_URL}",
-        reply_markup=ReplyKeyboardRemove()
+    users_col.update_one(
+        {'_id': user_id},
+        {
+            '$set': {
+                'phone': phone,
+                'timestamp': int(time.time()),
+                'active': True
+            }
+        },
+        upsert=True
     )
 
-    keyboard = [[KeyboardButton("📩 تیکت به پشتیبانی")]]
-    markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text("در صورت نیاز به پشتیبانی از این گزینه استفاده کنید:", reply_markup=markup)
+    # ارسال به ادمین
+    bot.send_message(ADMIN_ID, f"📥 کاربر جدید ثبت شد\nآیدی: {user_id}\nشماره: {phone}")
 
-# هندلر ارسال تیکت
-async def handle_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    message = update.message.text
+    # نمایش دکمه تیکت
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add(telebot.types.KeyboardButton('🎫 تیکت به پشتیبانی'))
 
-    tickets_col.insert_one({
-        "user_id": user_id,
-        "message": message
-    })
+    bot.send_message(user_id, f"✅ شماره شما ثبت شد.\nبرای پرداخت، روی لینک زیر کلیک کنید:\n{ZARINPAL_URL}", reply_markup=markup)
 
-    await context.bot.send_message(chat_id=ADMIN_ID, text=f"🎟 تیکت جدید از {user_id}:\n{message}")
-    await update.message.reply_text("✅ پیام شما به پشتیبانی ارسال شد.")
+# --- تیکت پشتیبانی ---
+@bot.message_handler(func=lambda m: m.text == '🎫 تیکت به پشتیبانی')
+def ask_support(message):
+    bot.send_message(message.chat.id, "📝 لطفاً پیام خود را بنویسید و ارسال کنید.")
+    bot.register_next_step_handler(message, forward_to_admin)
 
-# هندلر عمومی
-async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if "تیکت" in update.message.text:
-        await handle_ticket(update, context)
+def forward_to_admin(message):
+    bot.send_message(ADMIN_ID, f"📩 پیام از {message.from_user.id}:\n{message.text}")
+    bot.send_message(message.chat.id, "✅ پیام شما ارسال شد. منتظر پاسخ باشید.")
 
-# وب‌هوک
-@app.route("/", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), bot_app.bot)
-    bot_app.update_queue.put_nowait(update)
-    return "ok"
+# --- چک انقضای اشتراک ---
+def check_expiry():
+    while True:
+        now = int(time.time())
+        for user in users_col.find({'active': True}):
+            user_id = user['_id']
+            join_time = user.get('timestamp', 0)
+            if now - join_time > 30 * 86400:
+                try:
+                    bot.ban_chat_member(CHANNEL_ID, user_id)
+                    bot.send_message(user_id, "⛔️ اشتراک شما به پایان رسیده و از کانال VIP حذف شدید.")
+                except:
+                    pass
+                users_col.update_one({'_id': user_id}, {'$set': {'active': False}})
+        time.sleep(3600)  # هر یک ساعت بررسی
 
-# صفحه تست
-@app.route("/", methods=["GET"])
-def index():
-    return "ربات فعال است."
-
-# تعریف هندلرها
-bot_app.add_handler(CommandHandler("start", start))
-bot_app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
-bot_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))
-
-# اجرای فلask
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+# --- اجرای Flask و ترد جداگانه بررسی انقضا ---
+if __name__ == '__main__':
+    threading.Thread(target=check_expiry).start()
+    app.run(host='0.0.0.0', port=10000)
