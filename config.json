@@ -1,5 +1,8 @@
 {
-    "token": "494613530:AAHQFmKNzgoehLf9i35mIPn1Z8WhtkrBZa4",
-    "channel": "https://t.me/+Bnko8vYkvcRkYjdk",
-    "zarinpal_url": "https://zarinp.al/634382"
+  "token": "494613530:AAHQFmKNzgoehLf9i35mIPn1Z8WhtkrBZa4",
+  "channel": "https://t.me/+Bnko8vYkvcRkYjdk",
+  "zarinpal_url": "https://zarinp.al/634382",
+  "admin_id": 368422936,
+  "mongo_uri": "mongodb+srv://vipadmin:milad137555@cluster0.g6mqucj.mongodb.net",
+  "db_name": "vip_bot"
 }
