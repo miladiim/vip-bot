@@ -62,20 +62,15 @@ def handle_contact(message):
         upsert=True
     )
 
-    bot.send_message(ADMIN_ID, f"""📥 کاربر جدید ثبت شد
-آیدی: {user_id}
-شماره: {phone}""")
+    bot.send_message(ADMIN_ID, f"📥 کاربر جدید ثبت شد\nآیدی: {user_id}\nشماره: {phone}")
 
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add(telebot.types.KeyboardButton('💳 پرداخت'), telebot.types.KeyboardButton('🎫 تیکت به پشتیبانی'))
-    bot.send_message(message.chat.id, f"✅ شماره شما ثبت شد.
-برای پرداخت، روی لینک زیر کلیک کنید:
-{ZARINPAL_URL}", reply_markup=markup)
+    bot.send_message(message.chat.id, f"✅ شماره شما ثبت شد.\nبرای پرداخت، روی لینک زیر کلیک کنید:\n{ZARINPAL_URL}", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == '💳 پرداخت')
 def payment_link(message):
-    bot.send_message(message.chat.id, f"💳 برای پرداخت، روی لینک زیر کلیک کنید:
-{ZARINPAL_URL}")
+    bot.send_message(message.chat.id, f"💳 برای پرداخت، روی لینک زیر کلیک کنید:\n{ZARINPAL_URL}")
 
 @bot.message_handler(func=lambda m: m.text == '🎫 تیکت به پشتیبانی')
 def ask_support(message):
@@ -88,8 +83,7 @@ def forward_to_admin(message):
         "text": message.text,
         "timestamp": int(time.time())
     })
-    bot.send_message(ADMIN_ID, f"📩 پیام از {message.from_user.id}:
-{message.text}")
+    bot.send_message(ADMIN_ID, f"📩 پیام از {message.from_user.id}:\n{message.text}")
     bot.send_message(message.chat.id, "✅ پیام شما ارسال شد. منتظر پاسخ باشید.")
 
 @bot.message_handler(commands=['admin'])
