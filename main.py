@@ -1,4 +1,3 @@
-
 from flask import Flask, request
 import telebot
 import time
@@ -63,10 +62,9 @@ def handle_contact(message):
         upsert=True
     )
 
-   bot.send_message(ADMIN_ID, f"""📥 کاربر جدید ثبت شد
+    bot.send_message(ADMIN_ID, f"""📥 کاربر جدید ثبت شد
 آیدی: {user_id}
 شماره: {phone}""")
-
 
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add(telebot.types.KeyboardButton('💳 پرداخت'), telebot.types.KeyboardButton('🎫 تیکت به پشتیبانی'))
@@ -109,13 +107,11 @@ def admin_panel(message):
 def callback_query(call):
     if call.data == "list_users":
         users = users_collection.find()
-        text = "📋 لیست کاربران:
-"
+        text = "📋 لیست کاربران:\n"
         for u in users:
             phone = u.get("phone", "-")
             active = "✅" if u.get("active") else "❌"
-            text += f"{u['_id']} | {phone} | {active}
-"
+            text += f"{u['_id']} | {phone} | {active}\n"
         bot.send_message(ADMIN_ID, text or "❗️کاربری یافت نشد.")
     elif call.data == "confirm_user":
         bot.send_message(ADMIN_ID, "لطفاً آیدی عددی کاربر را بفرستید تا فعال شود.")
@@ -131,9 +127,7 @@ def confirm_user_step(message):
     try:
         user_id = int(message.text)
         users_collection.update_one({"_id": user_id}, {"$set": {"active": True, "timestamp": int(time.time())}})
-        bot.send_message(user_id, f"✅ اشتراک شما فعال شد.
-
-📥 [عضویت در کانال VIP]({CHANNEL_LINK})", parse_mode='Markdown')
+        bot.send_message(user_id, f"✅ اشتراک شما فعال شد.\n\n📥 [عضویت در کانال VIP]({CHANNEL_LINK})", parse_mode='Markdown')
         bot.send_message(ADMIN_ID, "✅ کاربر با موفقیت فعال شد.")
     except:
         bot.send_message(ADMIN_ID, "❗️ خطا در فعال‌سازی.")
