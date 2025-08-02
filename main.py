@@ -1,121 +1,86 @@
+
 import logging
-from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
+from flask import Flask, request
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 from pymongo import MongoClient
-from datetime import datetime
-import pytz
+import json
+import requests
 
-# ---------------- تنظیمات ربات ----------------
-BOT_TOKEN = "توکن‌رباتت"
-ADMIN_ID = 368422936
-CHANNEL_ID = -1002891641618
-CHANNEL_LINK = "https://t.me/+Bnko8vYkvcRkYjdk"
-ZARINPAL_LINK = "https://zarinp.al/634382"
+# Load config
+with open("config.json", "r") as f:
+    config = json.load(f)
 
-# ---------------- اتصال به MongoDB ----------------
-client = MongoClient("mongodb+srv://vipadmin:milad137555@cluster0.g6mqucj.mongodb.net/?retryWrites=true&w=majority")
+TOKEN = config["token"]
+CHANNEL_LINK = config["channel"]
+ZARINPAL_URL = config["zarinpal_url"]
+ADMIN_ID = 368422936  # آیدی عددی شما
+
+# MongoDB setup
+client = MongoClient("mongodb+srv://vipadmin:milad137555@cluster0.g6mqucj.mongodb.net")
 db = client["vip_bot"]
 users_col = db["users"]
 tickets_col = db["tickets"]
 
-# ---------------- لاگ ----------------
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
 
-# ---------------- توابع ----------------
-def start(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-    user = users_col.find_one({"user_id": user_id})
-    if user and user.get("phone"):
-        update.message.reply_text("شماره شما قبلاً ثبت شده. برای پشتیبانی می‌تونی از دکمه زیر استفاده کنی.")
-        show_support_button(update)
-    else:
-        keyboard = [[KeyboardButton("ارسال شماره موبایل", request_contact=True)]]
-        update.message.reply_text(
-            "لطفاً شماره موبایل خودت رو برای ادامه ارسال کن:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-        )
+# Telegram bot handlers
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    button = KeyboardButton("ارسال شماره 📱", request_contact=True)
+    markup = ReplyKeyboardMarkup([[button]], resize_keyboard=True, one_time_keyboard=True)
+    await update.message.reply_text("برای ادامه لطفا شماره موبایل خود را ارسال کنید:", reply_markup=markup)
 
-def show_support_button(update: Update):
-    support_btn = [[InlineKeyboardButton("📩 تیکت به پشتیبانی", callback_data="support")]]
-    update.message.reply_text("در صورت سوال، از طریق دکمه زیر پیام بده:", reply_markup=InlineKeyboardMarkup(support_btn))
-
-def remove_payment_button(context: CallbackContext):
-    job = context.job
-    try:
-        context.bot.edit_message_reply_markup(chat_id=job.context["chat_id"], message_id=job.context["message_id"], reply_markup=None)
-    except Exception as e:
-        logging.error(f"خطا در حذف دکمه پرداخت: {e}")
-
-def handle_contact(update: Update, context: CallbackContext):
+async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     contact = update.message.contact
-    user_id = contact.user_id
-    phone = contact.phone_number
+    user_id = update.effective_user.id
 
-    users_col.update_one(
-        {"user_id": user_id},
-        {"$set": {"phone": phone, "joined": False, "expire_at": None}},
-        upsert=True
+    users_col.update_one({"user_id": user_id}, {"$set": {
+        "user_id": user_id,
+        "phone_number": contact.phone_number,
+        "step": "waiting_payment"
+    }}, upsert=True)
+
+    await update.message.reply_text(
+        f"✅ شماره شما ثبت شد.\nاکنون برای فعال‌سازی عضویت VIP روی لینک زیر پرداخت را انجام دهید:\n\n{ZARINPAL_URL}",
+        reply_markup=ReplyKeyboardRemove()
     )
 
-    # دکمه پرداخت
-    btn = [[InlineKeyboardButton("پرداخت و دریافت لینک عضویت", url=ZARINPAL_LINK)]]
-    msg = update.message.reply_text("✅ شماره ثبت شد. حالا پرداخت کن تا لینک عضویت برات فعال بشه:", reply_markup=InlineKeyboardMarkup(btn))
+    keyboard = [[KeyboardButton("📩 تیکت به پشتیبانی")]]
+    markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    await update.message.reply_text("در صورت نیاز به پشتیبانی از این گزینه استفاده کنید:", reply_markup=markup)
 
-    context.job_queue.run_once(remove_payment_button, 600, context={"chat_id": msg.chat_id, "message_id": msg.message_id})
-
-    # دکمه پشتیبانی
-    show_support_button(update)
-
-def handle_callback(update: Update, context: CallbackContext):
-    query = update.callback_query
-    user_id = query.from_user.id
-    data = query.data
-
-    if data == "support":
-        query.answer()
-        context.user_data["awaiting_ticket"] = True
-        context.bot.send_message(chat_id=user_id, text="✏️ لطفاً پیام خود را برای پشتیبانی ارسال کن.")
-
-def handle_text(update: Update, context: CallbackContext):
+async def handle_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if context.user_data.get("awaiting_ticket"):
-        msg = update.message.text
-        timestamp = datetime.now(pytz.timezone("Asia/Tehran")).strftime("%Y-%m-%d %H:%M")
-        user = users_col.find_one({"user_id": user_id})
-        ticket = {
-            "from": user_id,
-            "text": msg,
-            "time": timestamp
-        }
-        tickets_col.insert_one(ticket)
+    tickets_col.insert_one({
+        "user_id": user_id,
+        "message": update.message.text
+    })
+    await context.bot.send_message(chat_id=ADMIN_ID, text=f"🎟 تیکت جدید از {user_id}:\n{update.message.text}")
+    await update.message.reply_text("✅ پیام شما به پشتیبانی ارسال شد.")
 
-        phone = user.get("phone", "نامشخص")
-        full_name = update.message.from_user.full_name
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if "تیکت" in text:
+        await handle_ticket(update, context)
 
-        admin_msg = (
-            f"📨 تیکت جدید\n"
-            f"👤 نام: {full_name}\n"
-            f"📞 شماره: {phone}\n"
-            f"🆔 آیدی: {user_id}\n\n"
-            f"📩 پیام:\n{msg}"
-        )
-        context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg)
-        update.message.reply_text("✅ پیام شما برای پشتیبانی ارسال شد.")
-        context.user_data["awaiting_ticket"] = False
-    else:
-        update.message.reply_text("برای شروع، دستور /start رو ارسال کن.")
+@app.route("/", methods=["POST"])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), Application.builder().token(TOKEN).build().bot)
+    Application.builder().token(TOKEN).build().process_update(update)
+    return "ok"
 
-# ---------------- اجرای ربات ----------------
+@app.route("/")
+def index():
+    return "Bot is running."
+
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
-    app.add_handler(CallbackQueryHandler(handle_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app_telegram = Application.builder().token(TOKEN).build()
+    app_telegram.add_handler(CommandHandler("start", start))
+    app_telegram.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    app_telegram.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))
+    app_telegram.run_polling()
 
-    print("🤖 ربات VIP اجرا شد...")
-    app.run_polling()
-
-if __name__ == '__main__':
-    import asyncio
-    asyncio.run(app.run_polling())
+if __name__ == "__main__":
+    main()
